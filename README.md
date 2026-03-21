@@ -153,8 +153,3 @@ Se recomienda siempre configurar `ALLOWED_GUILD_IDS` para evitar acceso no autor
 | `dockerode`    | `^4`     | SDK para controlar Docker vía socket Unix  |
 | `dotenv`       | `^16`    | Carga de variables de entorno desde `.env` |
 
----
-
-## 📄 Licencia
-
-[MIT](LICENSE)
