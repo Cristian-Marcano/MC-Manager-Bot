@@ -1,6 +1,6 @@
 // ============================================================
 // MC Manager Bot — Discord bot to manage a Minecraft container
-// Slash command edition (/start /stop /status /help /mc)
+// Slash command edition (/start /stop /status /players /help /mc)
 // ============================================================
 import "dotenv/config";
 import {
@@ -12,11 +12,16 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import Docker from "dockerode";
+import { checkStatus } from "mcstatus";
 
 // Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CONTAINER_NAME = process.env.CONTAINER_NAME;
+
+// Minecraft server address for player-count queries
+const MC_HOST = process.env.MC_HOST ?? "localhost";
+const MC_PORT = Number(process.env.MC_PORT ?? 25565);
 
 // Comma-separated list of allowed Discord server (guild) IDs
 const ALLOWED_GUILD_IDS = process.env.ALLOWED_GUILD_IDS
@@ -41,6 +46,9 @@ const COMMANDS = [
   new SlashCommandBuilder()
     .setName("status")
     .setDescription("📊 Show the current state and uptime of the server."),
+  new SlashCommandBuilder()
+    .setName("players")
+    .setDescription("👥 Show how many players are connected to the server."),
   new SlashCommandBuilder()
     .setName("help")
     .setDescription("📋 List all available bot commands."),
@@ -75,6 +83,25 @@ async function registerCommands(client) {
 
 // Docker client (Unix socket)
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
+
+/**
+ * Ping the Minecraft server and return player info.
+ * Returns null (instead of throwing) if the server is unreachable,
+ * so callers can degrade gracefully.
+ */
+async function getPlayers() {
+  try {
+    const result = await Promise.race([
+      checkStatus({ host: MC_HOST, port: MC_PORT }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Server ping timed out (5s)")), 5000)
+      ),
+    ]);
+    return result; // { players, max_players, version, motd, ping }
+  } catch {
+    return null;
+  }
+}
 
 // Resolve the container object, throwing a friendly error if not found.
 async function getContainer() {
@@ -210,10 +237,72 @@ async function handleStatus(interaction) {
       embed.addFields({ name: "Stopped At", value: `\`${new Date(state.FinishedAt).toUTCString()}\``, inline: false });
     }
 
+    // If running, also try to fetch live player count
+    if (state.Running) {
+      const mc = await getPlayers();
+      if (mc !== null) {
+        embed.addFields({
+          name: "👥 Players",
+          value: `\`${mc.players} / ${mc.max_players}\``,
+          inline: true,
+        });
+      }
+    }
+
     return interaction.editReply({ embeds: [embed] });
   } catch (err) {
     console.error("[/status]", err);
     return interaction.editReply({ embeds: [errorEmbed("Status Error", codeBlock(err.message))] });
+  }
+}
+
+// /players — Show live player count
+async function handlePlayers(interaction) {
+  await interaction.deferReply();
+  try {
+    // First check if the container is even running
+    const container = await getContainer();
+    const info = await container.inspect();
+
+    if (!info.State.Running) {
+      return interaction.editReply({
+        embeds: [errorEmbed("Server Offline", "The Minecraft server container is not running.")],
+      });
+    }
+
+    const mc = await getPlayers();
+
+    if (mc === null) {
+      return interaction.editReply({
+        embeds: [
+          baseEmbed(COLOR.yellow)
+            .setTitle("⚠️ Server Unreachable")
+            .setDescription(
+              `The container is **running** but the Minecraft server didn't respond on \`${MC_HOST}:${MC_PORT}\`.\n` +
+              `It may still be booting up — try again in a few seconds.`
+            ),
+        ],
+      });
+    }
+
+    const embed = baseEmbed(mc.players > 0 ? COLOR.green : COLOR.yellow)
+      .setTitle("👥 Players Online")
+      .addFields(
+        { name: "Online",      value: `\`${mc.players}\``,            inline: true },
+        { name: "Capacity",    value: `\`${mc.max_players}\``,        inline: true },
+        { name: "Ping",        value: `\`${mc.ping} ms\``,            inline: true },
+        { name: "Version",     value: `\`${mc.version}\``,            inline: true },
+        { name: "Address",     value: `\`${MC_HOST}:${MC_PORT}\``,    inline: true }
+      );
+
+    if (mc.players === 0) {
+      embed.setDescription("No players are currently connected.");
+    }
+
+    return interaction.editReply({ embeds: [embed] });
+  } catch (err) {
+    console.error("[/players]", err);
+    return interaction.editReply({ embeds: [errorEmbed("Players Error", codeBlock(err.message))] });
   }
 }
 
@@ -222,10 +311,11 @@ async function handleHelp(interaction) {
   const embed = baseEmbed(COLOR.blue)
     .setTitle("🎮 MC Manager Bot — Commands")
     .addFields(
-      { name: "`/start`", value: "Start the Minecraft server container.", inline: false },
-      { name: "`/stop`", value: "Stop the Minecraft server safely.", inline: false },
-      { name: "`/status`", value: "Show the current state and uptime.", inline: false },
-      { name: "`/help`", value: "Show this help message.", inline: false }
+      { name: "`/start`",   value: "Start the Minecraft server container.",          inline: false },
+      { name: "`/stop`",    value: "Stop the Minecraft server safely.",               inline: false },
+      { name: "`/status`",  value: "Show container state, uptime and player count.",  inline: false },
+      { name: "`/players`", value: "Show live player count and server info.",         inline: false },
+      { name: "`/help`",    value: "Show this help message.",                         inline: false }
     );
   return interaction.reply({ embeds: [embed] });
 }
@@ -250,11 +340,12 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   switch (interaction.commandName) {
-    case "start": return handleStart(interaction);
-    case "stop": return handleStop(interaction);
-    case "status": return handleStatus(interaction);
+    case "start":   return handleStart(interaction);
+    case "stop":    return handleStop(interaction);
+    case "status":  return handleStatus(interaction);
+    case "players": return handlePlayers(interaction);
     case "help":
-    case "mc": return handleHelp(interaction);
+    case "mc":      return handleHelp(interaction);
   }
 });
 
