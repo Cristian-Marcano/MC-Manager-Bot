@@ -17,6 +17,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
+      mcstatus:
+        specifier: ^1.0.1
+        version: 1.0.1
 
 packages:
 
@@ -237,6 +240,9 @@ packages:
 
   magic-bytes.js@1.13.0:
     resolution: {integrity: sha512-afO2mnxW7GDTXMm5/AoN1WuOcdoKhtgXjIvHmobqTD1grNplhGdv3PFOyjCVmrnOZBIT/gD/koDKpYG+0mvHcg==}
+
+  mcstatus@1.0.1:
+    resolution: {integrity: sha512-wbCQUfu4DyS/lu4eiWTJS71/h5ZyZrCXATLusscrKuOpQOHqKydD+d4oy7hYejng/hVtjRhTwVzfJlHEu9tCLw==}
 
   mkdirp-classic@0.5.3:
     resolution: {integrity: sha512-gKLcREMhtuZRwRAfqP3RFW+TK4JqApVBtOIftVgjuABpAtpxhPGaDcfvbhNvD0B8iD1oUr/txX35NjcaY6Ns/A==}
@@ -593,6 +599,8 @@ snapshots:
   long@5.3.2: {}
 
   magic-bytes.js@1.13.0: {}
+
+  mcstatus@1.0.1: {}
 
   mkdirp-classic@0.5.3: {}
 
